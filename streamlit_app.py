@@ -5,8 +5,11 @@ import tempfile
 import os
 from typing import Tuple, Optional, List
 import pandas as pd
-import matplotlib.pyplot as plt
 import time
+
+# Suppress matplotlib warnings in cloud environment
+import warnings
+warnings.filterwarnings('ignore')
 
 class JumpAnalyzer:
     def __init__(self):
