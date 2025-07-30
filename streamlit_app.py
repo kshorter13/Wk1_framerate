@@ -42,11 +42,9 @@ class FrameSkipJumpAnalyzer:
         
         # Jump height calculation: h = 0.5 * g * t²
         height_meters = 0.5 * self.gravity * (time_to_peak ** 2)
-        height_feet = height_meters * 3.28084
         
         return {
             'height_m': height_meters,
-            'height_ft': height_feet,
             'flight_time': flight_time,
             'flight_frames': end_frame - start_frame,
             'takeoff_velocity': self.gravity * time_to_peak
@@ -246,18 +244,15 @@ def main():
                     )
                     
                     # Main results display
-                    col1, col2, col3, col4 = st.columns(4)
+                    col1, col2, col3 = st.columns(3)
                     
                     with col1:
                         st.metric("Jump Height", f"{results['height_m']:.3f} m", help="Maximum vertical height reached")
                     
                     with col2:
-                        st.metric("Jump Height", f"{results['height_ft']:.2f} ft", help="Maximum vertical height in feet")
-                    
-                    with col3:
                         st.metric("Flight Time", f"{results['flight_time']:.3f} s", help="Total time in air")
                     
-                    with col4:
+                    with col3:
                         st.metric("Flight Frames", f"{results['flight_frames']}", help="Frames between takeoff and landing")
                     
                     # Detailed analysis
@@ -272,7 +267,7 @@ def main():
                     # Copy results
                     if st.button("📋 Copy Results"):
                         result_text = f"""Jump Analysis Results:
-Height: {results['height_m']:.3f} m ({results['height_ft']:.2f} ft)
+Height: {results['height_m']:.3f} m
 Flight Time: {results['flight_time']:.3f} seconds
 Takeoff Velocity: {results['takeoff_velocity']:.2f} m/s
 Video FPS: {original_fps:.1f}
@@ -292,10 +287,10 @@ File: {uploaded_file.name}"""
         
         1. **📤 Upload Video**: Choose any video file (any frame rate supported)
         2. **🎮 Select Playback Speed**: Choose how fast to step through frames:
-           - **200 fps**: Show every frame (most precise)
-           - **100 fps**: Show every 2nd frame (fast + precise)
-           - **50 fps**: Show every 4th frame (good for most jumps)
-           - **25 fps**: Show every 8th frame (fastest navigation)
+           - **200 fps**: Show every frame
+           - **100 fps**: Show every 2nd frame
+           - **50 fps**: Show every 4th frame
+           - **25 fps**: Show every 8th frame
         
         3. **🎬 Navigate**: Use slider and controls to find jump sequence
         4. **🚀 Mark Start**: Click when feet leave the ground
@@ -311,8 +306,8 @@ File: {uploaded_file.name}"""
         ### 💡 Tips:
         - **Side view** of jumps works best
         - **Mark precisely** at moment of takeoff/landing
-        - **Higher playback rates** = more precise marking
-        - **Lower playback rates** = faster navigation
+        - **Higher playback rates** for more precise marking
+        - **Lower playback rates** for faster navigation
         """)
 
 if __name__ == "__main__":
