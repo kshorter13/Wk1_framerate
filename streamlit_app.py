@@ -356,10 +356,10 @@ def main():
         5. **📏 Results**: Instant calculation
     
     # Cleanup on app restart
-if st.button("🗑️ Clear Cache & Cleanup"):
-        st.cache_data.clear()
-        cleanup_temp_files()
-        st.success("Cache cleared!")
+        if st.button("🗑️ Clear Cache & Cleanup"):
+            st.cache_data.clear()
+            cleanup_temp_files()
+            st.success("Cache cleared!")
 
 if __name__ == "__main__":
     main()
