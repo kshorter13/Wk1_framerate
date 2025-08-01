@@ -354,18 +354,6 @@ def main():
         3. **🎬 Navigate**: Use buttons or slider
         4. **🚀 Mark**: Takeoff and landing points
         5. **📏 Results**: Instant calculation
-        
-        ### ⚡ Cloud Optimizations:
-        - **Frame caching** for faster navigation
-        - **Automatic resizing** for display
-        - **Memory management** for stability
-        - **Size limits** to prevent crashes
-        
-        ### 💡 Performance Tips:
-        - Use **shorter videos** when possible
-        - **Lower playback rates** for faster navigation
-        - **Clear cache** if switching videos frequently
-        """)
     
     # Cleanup on app restart
     if st.button("🗑️ Clear Cache & Cleanup"):
