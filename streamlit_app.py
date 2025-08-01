@@ -350,7 +350,7 @@ def main():
            - **Max**: 100MB (may be slow)
            - Any frame rate supported
         
-        2. **🎮 Playback**: Lower frame rates = faster performance
+        2. **🎮 Playback**:
         3. **🎬 Navigate**: Use buttons or slider
         4. **🚀 Mark**: Takeoff and landing points
         5. **📏 Results**: Instant calculation
