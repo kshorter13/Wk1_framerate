@@ -356,7 +356,7 @@ def main():
         5. **📏 Results**: Instant calculation
     
     # Cleanup on app restart
-    if st.button("🗑️ Clear Cache & Cleanup"):
+if st.button("🗑️ Clear Cache & Cleanup"):
         st.cache_data.clear()
         cleanup_temp_files()
         st.success("Cache cleared!")
