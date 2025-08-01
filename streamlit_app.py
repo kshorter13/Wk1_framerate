@@ -342,7 +342,7 @@ def main():
     
     else:
         # Instructions when no video loaded
-        st.markdown("
+        st.markdown("""
         ### 📋 Instructions (Cloud Optimized):
         
         1. **📤 Upload Video**: 
@@ -354,7 +354,7 @@ def main():
         3. **🎬 Navigate**: Use buttons or slider
         4. **🚀 Mark**: Takeoff and landing points
         5. **📏 Results**: Instant calculation
-    
+         """)
     # Cleanup on app restart
         if st.button("🗑️ Clear Cache & Cleanup"):
             st.cache_data.clear()
