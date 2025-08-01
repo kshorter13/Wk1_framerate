@@ -3,14 +3,22 @@ import cv2
 import numpy as np
 import tempfile
 import os
+from functools import lru_cache
 
-class FrameSkipJumpAnalyzer:
+class OptimizedJumpAnalyzer:
     def __init__(self):
         self.gravity = 9.81
+        self.max_display_width = 800  # Limit display resolution
+        self.frame_cache_size = 10    # Cache only recent frames
     
-    def get_video_info(self, video_path: str):
-        """Get basic video information"""
+    @st.cache_data
+    def get_video_info(_self, video_path: str):
+        """Get basic video information - cached to avoid repeated reads"""
         cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            cap.release()
+            return None, None, None, None
+            
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -18,15 +26,40 @@ class FrameSkipJumpAnalyzer:
         cap.release()
         return frame_count, fps, width, height
     
-    def get_frame_at_position(self, video_path: str, frame_number: int):
-        """Extract single frame"""
+    def get_display_size(self, original_width, original_height):
+        """Calculate efficient display size"""
+        if original_width <= self.max_display_width:
+            return original_width, original_height
+        
+        ratio = self.max_display_width / original_width
+        return int(original_width * ratio), int(original_height * ratio)
+    
+    @st.cache_data(max_entries=10)  # Cache recent frames
+    def get_frame_at_position(_self, video_path: str, frame_number: int, display_width: int = None):
+        """Extract and resize frame for display - with caching"""
         cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            cap.release()
+            return None
+            
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         ret, frame = cap.read()
         cap.release()
-        if ret:
-            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return None
+        
+        if not ret:
+            return None
+            
+        # Convert color space
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Resize for display if needed
+        if display_width and frame.shape[1] > display_width:
+            height, width = frame.shape[:2]
+            ratio = display_width / width
+            new_height = int(height * ratio)
+            frame = cv2.resize(frame, (display_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        return frame
     
     def calculate_frame_skip(self, original_fps: float, target_fps: int):
         """Calculate how many frames to skip"""
@@ -34,13 +67,8 @@ class FrameSkipJumpAnalyzer:
     
     def calculate_jump_height(self, start_frame: int, end_frame: int, original_fps: float):
         """Calculate jump height using original video timing"""
-        # Flight time using original fps (real time)
         flight_time = (end_frame - start_frame) / original_fps
-        
-        # Time to peak (half of flight time)
         time_to_peak = flight_time / 2
-        
-        # Jump height calculation: h = 0.5 * g * t²
         height_meters = 0.5 * self.gravity * (time_to_peak ** 2)
         
         return {
@@ -50,140 +78,189 @@ class FrameSkipJumpAnalyzer:
             'takeoff_velocity': self.gravity * time_to_peak
         }
 
+def cleanup_temp_files():
+    """Clean up temporary files to save space"""
+    if 'video_path' in st.session_state and os.path.exists(st.session_state.video_path):
+        try:
+            os.unlink(st.session_state.video_path)
+        except:
+            pass
+
 def main():
     st.set_page_config(
-        page_title="Jump Analysis - Frame Skip",
+        page_title="Jump Analysis - Optimized",
         page_icon="🏃‍♂️",
         layout="wide"
     )
     
-    st.title("🏃‍♂️ Jump Height Analysis")
-    st.markdown("*Upload video → Select playback speed → Mark jump start/end → Get height*")
+    st.title("🏃‍♂️ Jump Height Analysis (Cloud Optimized)")
+    st.markdown("*Optimized for Streamlit Cloud - reduced memory usage*")
     
     # Initialize session state
     if 'analyzer' not in st.session_state:
-        st.session_state.analyzer = FrameSkipJumpAnalyzer()
+        st.session_state.analyzer = OptimizedJumpAnalyzer()
     if 'video_loaded' not in st.session_state:
         st.session_state.video_loaded = False
     
-    # File upload
+    # File size warning
+    st.info("💡 **Tip**: For best performance on Streamlit Cloud, use videos under 50MB and under 30 seconds")
+    
+    # File upload with size limit info
     uploaded_file = st.file_uploader(
-        "Upload Video File",
+        "Upload Video File (Recommended: <50MB)",
         type=['mp4', 'avi', 'mov'],
-        help="Any frame rate supported - we'll detect it automatically"
+        help="Smaller files work better on Streamlit Cloud"
     )
     
     if uploaded_file is not None:
-        # Save file temporarily
-        if not st.session_state.video_loaded:
+        # Check file size
+        file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
+        
+        if file_size_mb > 100:
+            st.error(f"⚠️ File too large ({file_size_mb:.1f}MB). Please use a smaller file (<100MB)")
+            return
+        elif file_size_mb > 50:
+            st.warning(f"⚠️ Large file ({file_size_mb:.1f}MB). May cause memory issues on Streamlit Cloud")
+        
+        # Save file temporarily (only once)
+        if not st.session_state.video_loaded or 'video_path' not in st.session_state:
+            # Clean up previous file
+            cleanup_temp_files()
+            
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
                 tmp_file.write(uploaded_file.read())
                 st.session_state.video_path = tmp_file.name
                 st.session_state.video_loaded = True
+                
+            # Clear frame cache when new video loaded
+            st.cache_data.clear()
         
         try:
-            # Get video info
-            frame_count, original_fps, width, height = st.session_state.analyzer.get_video_info(st.session_state.video_path)
+            # Get video info (cached)
+            video_info = st.session_state.analyzer.get_video_info(st.session_state.video_path)
+            frame_count, original_fps, width, height = video_info
+            
+            if frame_count is None:
+                st.error("Could not read video file. Please try a different format.")
+                return
             
             # Display video information
             st.subheader("📹 Video Information")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Detected FPS", f"{original_fps:.1f}")
+                st.metric("File Size", f"{file_size_mb:.1f}MB")
             with col2:
-                st.metric("Total Frames", frame_count)
+                st.metric("Detected FPS", f"{original_fps:.1f}")
             with col3:
-                st.metric("Duration", f"{frame_count/original_fps:.2f}s")
+                st.metric("Total Frames", frame_count)
             with col4:
+                st.metric("Duration", f"{frame_count/original_fps:.2f}s")
+            with col5:
                 st.metric("Resolution", f"{width}x{height}")
+            
+            # Calculate display size
+            display_width, display_height = st.session_state.analyzer.get_display_size(width, height)
+            if display_width < width:
+                st.info(f"📱 Display optimized: {width}x{height} → {display_width}x{display_height}")
             
             # Frame rate selection for playback
             st.subheader("🎮 Playback Settings")
             
-            # Determine available frame rates based on original fps
+            # Determine available frame rates (limited for cloud)
+            max_playback_fps = min(100, int(original_fps))  # Cap at 100 for cloud
             available_fps = []
-            if original_fps >= 200:
-                available_fps = [200, 100, 50, 25]
-            elif original_fps >= 100:
-                available_fps = [100, 50, 25]
-            elif original_fps >= 50:
-                available_fps = [50, 25]
+            
+            if max_playback_fps >= 100:
+                available_fps = [100, 50, 25, 10]
+            elif max_playback_fps >= 50:
+                available_fps = [50, 25, 10]
+            elif max_playback_fps >= 25:
+                available_fps = [25, 10]
             else:
-                available_fps = [25]
+                available_fps = [10, 5]
+            
+            # Filter to only include rates <= max_playback_fps
+            available_fps = [fps for fps in available_fps if fps <= max_playback_fps]
             
             playback_fps = st.selectbox(
                 "Playback Frame Rate",
                 available_fps,
-                index=0,
-                help="Choose how fast to step through frames"
+                index=len(available_fps)//2,  # Start with middle option
+                help="Lower rates = faster navigation, less memory usage"
             )
             
             # Calculate frame skip
             frame_skip = st.session_state.analyzer.calculate_frame_skip(original_fps, playback_fps)
             playback_frames = frame_count // frame_skip
             
-            st.info(f"Showing every {frame_skip} frame(s) = {playback_frames} total playback frames")
+            st.info(f"📊 Showing every {frame_skip} frame(s) = {playback_frames} playback frames | Memory optimized for cloud")
             
             # Frame navigation
             st.subheader("🎬 Frame Navigation")
             
-            # Convert between playback frame numbers and actual frame numbers
-            playback_frame = st.slider(
-                "Playback Frame",
-                min_value=0,
-                max_value=playback_frames-1,
-                value=0,
-                help="Navigate through video at selected frame rate"
-            )
+            # Use session state for current frame to avoid resets
+            if 'current_playback_frame' not in st.session_state:
+                st.session_state.current_playback_frame = 0
             
-            # Calculate actual frame number
-            actual_frame = playback_frame * frame_skip
-            
-            # Navigation controls
+            # Navigation controls first (more responsive)
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             with col1:
                 if st.button("⏮️ Start"):
-                    playback_frame = 0
-                    st.rerun()
+                    st.session_state.current_playback_frame = 0
             
             with col2:
                 if st.button("⏪ -10"):
-                    playback_frame = max(0, playback_frame - 10)
-                    st.rerun()
+                    st.session_state.current_playback_frame = max(0, st.session_state.current_playback_frame - 10)
             
             with col3:
                 if st.button("⏪ -1"):
-                    playback_frame = max(0, playback_frame - 1)
-                    st.rerun()
+                    st.session_state.current_playback_frame = max(0, st.session_state.current_playback_frame - 1)
             
             with col4:
                 if st.button("⏩ +1"):
-                    playback_frame = min(playback_frames-1, playback_frame + 1)
-                    st.rerun()
+                    st.session_state.current_playback_frame = min(playback_frames-1, st.session_state.current_playback_frame + 1)
             
             with col5:
                 if st.button("⏩ +10"):
-                    playback_frame = min(playback_frames-1, playback_frame + 10)
-                    st.rerun()
+                    st.session_state.current_playback_frame = min(playback_frames-1, st.session_state.current_playback_frame + 10)
             
             with col6:
                 if st.button("⏭️ End"):
-                    playback_frame = playback_frames-1
-                    st.rerun()
+                    st.session_state.current_playback_frame = playback_frames-1
+            
+            # Slider for direct navigation
+            playback_frame = st.slider(
+                "Playback Frame",
+                min_value=0,
+                max_value=playback_frames-1,
+                value=st.session_state.current_playback_frame,
+                help="Navigate through video"
+            )
+            
+            # Update session state if slider changed
+            if playback_frame != st.session_state.current_playback_frame:
+                st.session_state.current_playback_frame = playback_frame
+            
+            # Calculate actual frame number
+            actual_frame = st.session_state.current_playback_frame * frame_skip
             
             # Display current frame
             col1, col2 = st.columns([3, 1])
             
             with col1:
-                with st.spinner("Loading frame..."):
-                    frame = st.session_state.analyzer.get_frame_at_position(st.session_state.video_path, actual_frame)
+                # Load frame (cached)
+                frame = st.session_state.analyzer.get_frame_at_position(
+                    st.session_state.video_path, 
+                    actual_frame, 
+                    display_width
+                )
                 
                 if frame is not None:
                     actual_time = actual_frame / original_fps
                     st.image(
                         frame,
-                        caption=f"Playback Frame {playback_frame} | Actual Frame {actual_frame} | Time: {actual_time:.3f}s",
+                        caption=f"Frame {st.session_state.current_playback_frame}/{playback_frames-1} | Actual Frame {actual_frame} | Time: {actual_time:.3f}s",
                         use_column_width=True
                     )
                 else:
@@ -201,14 +278,12 @@ def main():
                 if st.button("🚀 JUMP START", use_container_width=True, type="primary"):
                     st.session_state.jump_start = actual_frame
                     st.session_state.jump_start_time = actual_time
-                    st.success(f"Jump start marked!")
-                    st.rerun()
+                    st.success(f"Start marked!")
                 
                 if st.button("🛬 JUMP END", use_container_width=True, type="secondary"):
                     st.session_state.jump_end = actual_frame
                     st.session_state.jump_end_time = actual_time
-                    st.success(f"Jump end marked!")
-                    st.rerun()
+                    st.success(f"End marked!")
                 
                 # Display marked points
                 if 'jump_start' in st.session_state:
@@ -221,14 +296,10 @@ def main():
                 
                 # Reset button
                 if st.button("🔄 Reset Marks", use_container_width=True):
-                    if 'jump_start' in st.session_state:
-                        del st.session_state.jump_start
-                        del st.session_state.jump_start_time
-                    if 'jump_end' in st.session_state:
-                        del st.session_state.jump_end
-                        del st.session_state.jump_end_time
+                    for key in ['jump_start', 'jump_start_time', 'jump_end', 'jump_end_time']:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     st.success("Marks reset!")
-                    st.rerun()
             
             # Calculate and display results
             if ('jump_start' in st.session_state and 
@@ -247,68 +318,60 @@ def main():
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
-                        st.metric("Jump Height", f"{results['height_m']:.3f} m", help="Maximum vertical height reached")
+                        st.metric("Jump Height", f"{results['height_m']:.3f} m")
                     
                     with col2:
-                        st.metric("Flight Time", f"{results['flight_time']:.3f} s", help="Total time in air")
+                        st.metric("Flight Time", f"{results['flight_time']:.3f} s")
                     
                     with col3:
-                        st.metric("Flight Frames", f"{results['flight_frames']}", help="Frames between takeoff and landing")
+                        st.metric("Flight Frames", f"{results['flight_frames']}")
                     
                     # Detailed analysis
                     with st.expander("📊 Detailed Analysis"):
-                        st.write(f"**Takeoff Velocity:** {results['takeoff_velocity']:.2f} m/s ({results['takeoff_velocity']*2.237:.2f} mph)")
+                        st.write(f"**Takeoff Velocity:** {results['takeoff_velocity']:.2f} m/s")
                         st.write(f"**Original Video FPS:** {original_fps:.1f}")
-                        st.write(f"**Playback FPS Used:** {playback_fps}")
-                        st.write(f"**Frame Skip Factor:** {frame_skip}")
-                        st.write(f"**Jump Start Frame:** {st.session_state.jump_start} ({st.session_state.jump_start_time:.3f}s)")
-                        st.write(f"**Jump End Frame:** {st.session_state.jump_end} ({st.session_state.jump_end_time:.3f}s)")
-                    
-                    # Copy results
-                    if st.button("📋 Copy Results"):
-                        result_text = f"""Jump Analysis Results:
-Height: {results['height_m']:.3f} m
-Flight Time: {results['flight_time']:.3f} seconds
-Takeoff Velocity: {results['takeoff_velocity']:.2f} m/s
-Video FPS: {original_fps:.1f}
-File: {uploaded_file.name}"""
-                        st.code(result_text, language="text")
+                        st.write(f"**File Size:** {file_size_mb:.1f}MB")
+                        st.write(f"**Jump Duration:** {st.session_state.jump_end_time - st.session_state.jump_start_time:.3f}s")
                 
                 else:
                     st.error("⚠️ Jump end must be after jump start!")
         
         except Exception as e:
             st.error(f"Error processing video: {str(e)}")
+            st.info("Try using a smaller video file or different format")
     
     else:
         # Instructions when no video loaded
         st.markdown("""
-        ### 📋 Instructions:
+        ### 📋 Instructions (Cloud Optimized):
         
-        1. **📤 Upload Video**: Choose any video file (any frame rate supported)
-        2. **🎮 Select Playback Speed**: Choose how fast to step through frames:
-           - **200 fps**: Show every frame
-           - **100 fps**: Show every 2nd frame
-           - **50 fps**: Show every 4th frame
-           - **25 fps**: Show every 8th frame
+        1. **📤 Upload Video**: 
+           - **Best**: Under 50MB, under 30 seconds
+           - **Max**: 100MB (may be slow)
+           - Any frame rate supported
         
-        3. **🎬 Navigate**: Use slider and controls to find jump sequence
-        4. **🚀 Mark Start**: Click when feet leave the ground
-        5. **🛬 Mark End**: Click when feet touch the ground
-        6. **📏 Get Results**: Automatic jump height calculation
+        2. **🎮 Playback**: Lower frame rates = faster performance
+        3. **🎬 Navigate**: Use buttons or slider
+        4. **🚀 Mark**: Takeoff and landing points
+        5. **📏 Results**: Instant calculation
         
-        ### 🧮 How It Works:
-        - Uses **actual video timing** for precise calculations
-        - Jump height: **h = ½ × g × t²** (where t = time to peak)
-        - Works with any original frame rate
-        - Frame skipping only affects navigation, not accuracy
+        ### ⚡ Cloud Optimizations:
+        - **Frame caching** for faster navigation
+        - **Automatic resizing** for display
+        - **Memory management** for stability
+        - **Size limits** to prevent crashes
         
-        ### 💡 Tips:
-        - **Side view** of jumps works best
-        - **Mark precisely** at moment of takeoff/landing
-        - **Higher playback rates** for more precise marking
+        ### 💡 Performance Tips:
+        - Use **shorter videos** when possible
         - **Lower playback rates** for faster navigation
+        - **Clear cache** if switching videos frequently
         """)
+    
+    # Cleanup on app restart
+    if st.button("🗑️ Clear Cache & Cleanup"):
+        st.cache_data.clear()
+        cleanup_temp_files()
+        st.success("Cache cleared!")
 
 if __name__ == "__main__":
     main()
