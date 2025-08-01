@@ -342,7 +342,7 @@ def main():
     
     else:
         # Instructions when no video loaded
-        st.markdown("""
+        st.markdown("
         ### 📋 Instructions (Cloud Optimized):
         
         1. **📤 Upload Video**: 
